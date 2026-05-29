@@ -1,6 +1,9 @@
 <?xml version='1.0' encoding='utf-8'?>
-<!-- jetscape_user_pp_realistic_vac_grid.xml v10.8
+<!-- jetscape_user_pp_realistic_vac_grid.xml v10.11
 CHANGELOG
+  v10.11 (paper-closeness rapidity-loss restore):
+    • Added ylossParam4At6=2.15 and ylossParam4At10=2.15 to match the 2024 paper XML MCGlauber rapidity-loss parameter set.
+    • No other physics/runtime settings changed from v10.10/v10.8 grid template.
   v10.8 (Wayne grid sliced PythiaIsrMUSIC template):
     • Converted the validated Luke v10.7 local XML into a sliced-grid template.
     • Replaced outputFilename, nEvents, seed, pTHatMin, and pTHatMax with manager-rendered placeholders.
@@ -47,6 +50,8 @@ CHANGELOG
     <MCGlauber>
       <ylossParam4At2>1.6</ylossParam4At2>
       <ylossParam4At4>2.15</ylossParam4At4>
+      <ylossParam4At6>2.15</ylossParam4At6>
+      <ylossParam4At10>2.15</ylossParam4At10>
       <ylossParam4var>0.5</ylossParam4var>
       <generateOnlyPositions>1</generateOnlyPositions>
       <b_min>0</b_min>
