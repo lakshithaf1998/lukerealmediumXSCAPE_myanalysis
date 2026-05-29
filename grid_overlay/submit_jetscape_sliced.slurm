@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# submit_jetscape_sliced.slurm v6.9
+# submit_jetscape_sliced.slurm v7.0
 # CHANGELOG
+# v7.0 (fix Pythia runtime env for PythiaIsrMUSIC on Wayne grid):
+#   • FIX: Export PYTHIA8DIR from pythia8-config --prefix after loading the pythia module.
+#   • FIX: Export PYTHIA8/P8INC/P8LIB/PYTHIA8DATA when discoverable so Pythia-dependent hadronization does not abort before physics.
+#   • LOG: Record resolved pythia8-config path and PYTHIA8DIR in Slurm stdout before running attempts.
+#   • NO CHANGE: XML physics, retry logic, output file names, Slurm resources, and analyzer/merge contracts are unchanged.
 # v6.9 (realistic pp PythiaIsrMUSIC staged retry worker):
 #   • NEW: RealisticPPWorkflow=1 runs PythiaIsrMUSIC from build/ but from a per-attempt staged working directory.
 #   • NEW: Copies mcglauber.input, music_input_Luke, and iSS_parameters.dat into each attempt; symlinks tables, iSS_tables, and EOS.
@@ -248,6 +253,33 @@ module load root/6.28.10
 module load pythia/8.303 fastjet/3.4.0 boost/1.67.0 gsl/2.5
 module load hdf5/1.12.1 zlib/1.3.1 intel/2020
 module -t list 2>&1 | sed 's/^/[module] /'
+
+ensure_pythia8_runtime_env(){
+  if [[ -z "${PYTHIA8DIR:-}" ]]; then
+    if command -v pythia8-config >/dev/null 2>&1; then
+      PYTHIA8DIR="$(pythia8-config --prefix 2>/dev/null || true)"
+    fi
+  fi
+  if [[ -z "${PYTHIA8DIR:-}" && -d "/wsu/el7/gnu7/pythia/8.303" ]]; then
+    PYTHIA8DIR="/wsu/el7/gnu7/pythia/8.303"
+  fi
+  [[ -n "${PYTHIA8DIR:-}" && -d "${PYTHIA8DIR}" ]] || die "PYTHIA8DIR could not be resolved after loading pythia/8.303. Try: export PYTHIA8DIR=\`pythia8-config --prefix\`."
+  export PYTHIA8DIR
+  export PYTHIA8="${PYTHIA8:-${PYTHIA8DIR}}"
+  export P8INC="${P8INC:-${PYTHIA8DIR}/include}"
+  export P8LIB="${P8LIB:-${PYTHIA8DIR}/lib}"
+  if [[ -z "${PYTHIA8DATA:-}" ]]; then
+    if [[ -d "${PYTHIA8DIR}/share/Pythia8/xmldoc" ]]; then
+      export PYTHIA8DATA="${PYTHIA8DIR}/share/Pythia8/xmldoc"
+    elif [[ -d "${PYTHIA8DIR}/xmldoc" ]]; then
+      export PYTHIA8DATA="${PYTHIA8DIR}/xmldoc"
+    fi
+  fi
+  log "[env] pythia8-config=$(command -v pythia8-config 2>/dev/null || echo '<not found>')"
+  log "[env] PYTHIA8DIR=${PYTHIA8DIR}"
+  log "[env] PYTHIA8DATA=${PYTHIA8DATA:-<unset>}"
+}
+ensure_pythia8_runtime_env
 
 # Ensure python3 exists (needed for strict sigmaGen/sigmaErr extraction).
 ensure_python3(){

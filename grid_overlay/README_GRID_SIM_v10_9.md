@@ -1,12 +1,12 @@
-# X-SCAPE realistic pp grid simulation overlay v10.8
+# X-SCAPE realistic pp grid simulation overlay v10.9
 
-This overlay updates only the simulation layer for the realistic pp PythiaIsrMUSIC smoke test on the Wayne State grid.
+This overlay updates only the simulation layer for the realistic pp PythiaIsrMUSIC smoke test on the Wayne State grid. v10.9 fixes the Slurm-side PYTHIA8DIR runtime environment failure seen in v10.8.
 
 ## Files installed into X-SCAPE root
 
-- `jetscape.ini` — v6.0 realistic pp defaults for the first 25-job smoke test.
+- `jetscape.ini` — v6.1 realistic pp defaults for the first 25-job smoke test, with a fresh v10.9 run tag.
 - `submit_sliced_sim.sh` — v8.3 manager compatibility header update; manager behavior is otherwise preserved.
-- `submit_jetscape_sliced.slurm` — v6.9 worker with staged PythiaIsrMUSIC runtime and internal retry loop.
+- `submit_jetscape_sliced.slurm` — v7.0 worker with staged PythiaIsrMUSIC runtime, internal retry loop, and explicit PYTHIA8DIR/PYTHIA8DATA export.
 - `config/jetscape_main.xml` — Luke main XML renamed for grid use.
 - `config/jetscape_user_pp_realistic_vac_grid.xml` — sliced-grid vacuum template.
 - `config/jetscape_user_pp_realistic_medium_grid.xml` — sliced-grid medium template.
@@ -19,7 +19,7 @@ This overlay updates only the simulation layer for the realistic pp PythiaIsrMUS
 
 The default `jetscape.ini` is configured for the vacuum run:
 
-- `RUN_TAG="pprealistic_vac_25test"`
+- `RUN_TAG="pprealistic_vac_25test_v10_9"`
 - `XML_TEMPLATE="jetscape_user_pp_realistic_vac_grid.xml"`
 - `EXE_NAME="PythiaIsrMUSIC"`
 - `NUM_EVENTS=1`
@@ -41,7 +41,7 @@ This keeps analysis and merge scripts compatible with the previous sliced workfl
 Edit only these `jetscape.ini` values:
 
 ```bash
-RUN_TAG="pprealistic_medium_25test"
+RUN_TAG="pprealistic_medium_25test_v10_9"
 XML_TEMPLATE="jetscape_user_pp_realistic_medium_grid.xml"
 RealisticPPMode="medium"
 BASE_SEED=23000000
