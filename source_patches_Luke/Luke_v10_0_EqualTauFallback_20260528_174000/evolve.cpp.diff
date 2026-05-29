@@ -1,0 +1,27 @@
+--- myanalysis/source_patches_Luke/Luke_v10_0_EqualTauFallback_20260528_174000/evolve.cpp.original	2026-05-28 17:40:07
++++ external_packages/music/src/evolve.cpp	2026-05-28 17:40:12
+@@ -540,6 +540,12 @@
+         }
+         if (intersections > 0 || cell_above_freezeout) {
+             all_frozen = 0;
++        } else {
++            for (int ieta = 0; ieta < arena_current.nEta(); ieta++) {
++                const int thread_id = omp_get_thread_num();
++                FreezeOut_equal_tau_Surface_XY(
++                        tau, ieta, arena_current, thread_id, epsFO);
++            }
+         }
+     }
+     return(all_frozen);
+@@ -1630,8 +1636,10 @@
+             }
+         }
+         all_frozen[i_freezesurf] = 0;
+-        if (intersections == 0 && !cell_above_freezeout)
++        if (intersections == 0 && !cell_above_freezeout) {
++            FreezeOut_equal_tau_Surface_XY(tau, 0, arena_current, 0, epsFO);
+             all_frozen[i_freezesurf] = 1;
++        }
+     }
+ 
+     int all_frozen_flag = 1;

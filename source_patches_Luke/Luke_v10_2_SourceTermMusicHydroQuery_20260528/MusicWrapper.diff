@@ -1,0 +1,58 @@
+diff --git a/src/hydro/MusicWrapper.cc b/src/hydro/MusicWrapper.cc
+index f51186ad..8587a32c 100644
+--- a/src/hydro/MusicWrapper.cc
++++ b/src/hydro/MusicWrapper.cc
+@@ -351,19 +351,23 @@ int MpiMusic::InitializeHydroEnergyProfile() {
+   // this is a temporary solution
+   music_hydro_ptr->add_hydro_source_terms(hydro_source_terms_ptr);
+ 
+-  if (pre_eq_ptr == nullptr) {
+-    JSINFO << "Setting up the hydro without pre-equilibrium module ...";
+-    music_hydro_ptr->initialize_hydro_xscape(nx, ny, nz, dx, dy, dz);
+-    hydro_source_terms_ptr->set_hydro_dtau(
+-        music_hydro_ptr->get_hydro_dtau_grid());
+-  } else if (initialProfile_ == 13 || initialProfile_ == 131) {
++  if (initialProfile_ == 13 || initialProfile_ == 131) {
+     auto QCDStringList = ini->GetQCDStringList();
++    JSINFO << "Setting up MUSIC string source terms from "
++           << QCDStringList.size() << " QCD strings.";
+     if (QCDStringList.size() == 0) {
+       status = -1;
+     } else {
+-      music_hydro_ptr->generate_hydro_source_terms(ini->GetQCDStringList());
++      music_hydro_ptr->generate_hydro_source_terms(QCDStringList);
+       music_hydro_ptr->initialize_hydro_xscape(nx, ny, nz, dx, dy, dz);
++      hydro_source_terms_ptr->set_hydro_dtau(
++          music_hydro_ptr->get_hydro_dtau_grid());
+     }
++  } else if (pre_eq_ptr == nullptr) {
++    JSINFO << "Setting up the hydro without pre-equilibrium module ...";
++    music_hydro_ptr->initialize_hydro_xscape(nx, ny, nz, dx, dy, dz);
++    hydro_source_terms_ptr->set_hydro_dtau(
++        music_hydro_ptr->get_hydro_dtau_grid());
+   } else {
+     music_hydro_ptr->generate_hydro_source_terms();
+     double tau0 = pre_eq_ptr->GetPreequilibriumEndTime();
+@@ -667,8 +671,13 @@ void MpiMusic::PassHydroEvolutionHistoryToFramework() {
+ void MpiMusic::GetHydroInfo(
+     Jetscape::real t, Jetscape::real x, Jetscape::real y, Jetscape::real z,
+     std::unique_ptr<FluidCellInfo> &fluid_cell_info_ptr) {
+-  GetHydroInfo_JETSCAPE(t, x, y, z, fluid_cell_info_ptr);
+-  // GetHydroInfo_MUSIC(t, x, y, z, fluid_cell_info_ptr);
++  if (bulk_info.data.size() > 0) {
++    GetHydroInfo_JETSCAPE(t, x, y, z, fluid_cell_info_ptr);
++  } else if (flag_output_evo_to_memory == 1) {
++    GetHydroInfo_MUSIC(t, x, y, z, fluid_cell_info_ptr);
++  } else {
++    GetHydroInfo_JETSCAPE(t, x, y, z, fluid_cell_info_ptr);
++  }
+ }
+ 
+ void MpiMusic::GetHydroInfo_JETSCAPE(
+@@ -756,4 +765,4 @@ bool MpiMusic::update_music_input_parameter(const std::string &filename,
+   outfile.close();
+ 
+   return true;
+-}
+\ No newline at end of file
++}
