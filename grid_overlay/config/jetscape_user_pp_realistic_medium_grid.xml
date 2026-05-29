@@ -1,6 +1,11 @@
 <?xml version='1.0' encoding='utf-8'?>
-<!-- jetscape_user_pp_realistic_medium_grid.xml v10.11
+<!-- jetscape_user_pp_realistic_medium_grid.xml v10.12
 CHANGELOG
+  v10.12 (paper-defensibility cleanup for MCGlauber XML controls):
+    • Kept generateOnlyPositions=1 because local 1000-trial A/B showed removing it gives 0/1000 valid events.
+    • Removed XML-level b_min, b_max, N_sea_partons, and useQuarks overrides from the MCGlauber/MUSIC blocks.
+    • b_min/b_max/useQuarks now fall back to myanalysis/mcglauber.input, where the paper-style/default input controls them.
+    • No changes to 13 TeV hard setup, pTHat placeholders, no hydro reuse, final-state-hadron writer, MUSIC timing, MATTER medium switch, iSS, or hadronization.
   v10.11 (paper-closeness rapidity-loss restore):
     • Added ylossParam4At6=2.15 and ylossParam4At10=2.15 to match the 2024 paper XML MCGlauber rapidity-loss parameter set.
     • No other physics/runtime settings changed from v10.10/v10.8 grid template.
@@ -13,7 +18,6 @@ CHANGELOG
     • Kept final-state hadron ASCII output on for analyzer compatibility.
 -->
 <jetscape>
-  
   <outputFilename>**OUTFILE_PLACEHOLDER**</outputFilename>
   <enableAutomaticTaskListDetermination>false</enableAutomaticTaskListDetermination>
   <setReuseHydro>false</setReuseHydro>
@@ -54,10 +58,6 @@ CHANGELOG
       <ylossParam4At10>2.15</ylossParam4At10>
       <ylossParam4var>0.5</ylossParam4var>
       <generateOnlyPositions>1</generateOnlyPositions>
-      <b_min>0</b_min>
-      <b_max>0.2</b_max>
-      <N_sea_partons>6</N_sea_partons>
-      <useQuarks>1</useQuarks>
     </MCGlauber>
   </IS>
   <Hydro>
@@ -83,9 +83,6 @@ CHANGELOG
       <average_surface_over_this_many_time_steps>5</average_surface_over_this_many_time_steps>
       <evolutionInMemory>1</evolutionInMemory>
       <generateOnlyPositions>1</generateOnlyPositions>
-      <b_max>0.2</b_max>
-      <N_sea_partons>6</N_sea_partons>
-      <useQuarks>1</useQuarks>
       <iSS_input_file>iSS_parameters.dat</iSS_input_file>
       <iSS_working_path>.</iSS_working_path>
       <iSS_table_path>iSS_tables</iSS_table_path>
