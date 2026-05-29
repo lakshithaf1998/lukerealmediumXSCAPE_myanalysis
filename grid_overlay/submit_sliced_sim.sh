@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# submit_sliced_sim.sh v8.3
+# submit_sliced_sim.sh v8.4
 # CHANGELOG
+# v8.4 (automatic Slurm-manager detach + ./ invocation cleanup):
+#   • DOC/FIX: Launching ./submit_sliced_sim.sh from Warrior/head node self-submits the SIM manager with sbatch and exits, so it survives SSH disconnects without manual tmux/screen.
+#   • CHANGE: The self-submitted manager re-enters using ./submit_sliced_sim.sh --_inside_manager instead of bash ./submit_sliced_sim.sh, matching the preferred executable-script workflow.
+#   • KEEP: Completed-output skip/recovery behavior is unchanged; rerunning the same RUN_TAG still resumes through existing per-task outputs/meta.
 # v8.3 (realistic pp PythiaIsrMUSIC simulation-manager compatibility):
 #   • DOC/COMPAT: Supports jetscape.ini v6.0 RealisticPPWorkflow=1 and submit_jetscape_sliced.slurm v5.8 without changing analysis/merge contracts.
 #   • KEEP: Existing throttled manager, watchdog, meta recovery, seed report, and Slurm job cap behavior are preserved.
@@ -372,7 +376,7 @@ if [[ -z "${SLURM_JOB_ID:-}" && "${INSIDE_MANAGER}" -eq 0 ]]; then
     echo "       account=${MANAGER_ACCOUNT} qos=${MANAGER_QOS} time=${MANAGER_TIME} mem=${MANAGER_MEM} cpus=${MANAGER_CPUS}"
 
     sbout="$(
-      sbatch         --parsable         --account="${MANAGER_ACCOUNT}"         --qos="${MANAGER_QOS}"         --nodes="${MANAGER_NODES}"         --ntasks="${MANAGER_NTASKS}"         --cpus-per-task="${MANAGER_CPUS}"         --mem="${MANAGER_MEM}"         --time="${MANAGER_TIME}"         --job-name="${jobname}"         --output="${out}"         --error="${err}"         --export=ALL,INI_PATH="${INI_PATH}"         --wrap="cd \"${SCRIPT_DIR}\" && bash ./$(basename "$0") --_inside_manager"
+      sbatch         --parsable         --account="${MANAGER_ACCOUNT}"         --qos="${MANAGER_QOS}"         --nodes="${MANAGER_NODES}"         --ntasks="${MANAGER_NTASKS}"         --cpus-per-task="${MANAGER_CPUS}"         --mem="${MANAGER_MEM}"         --time="${MANAGER_TIME}"         --job-name="${jobname}"         --output="${out}"         --error="${err}"         --export=ALL,INI_PATH="${INI_PATH}"         --wrap="cd \"${SCRIPT_DIR}\" && ./$(basename "$0") --_inside_manager"
     )" || { echo "[FATAL] sbatch failed while trying to launch the SIM manager."; exit 1; }
 
     jid="$(require_numeric_sbatch_jobid "SIM manager self-submit" "${sbout}")"

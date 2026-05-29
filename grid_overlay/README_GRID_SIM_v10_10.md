@@ -1,4 +1,4 @@
-# X-SCAPE realistic pp grid simulation overlay v10.9
+# Wayne Grid realistic pp simulation overlay v10.10
 
 This overlay updates only the simulation layer for the realistic pp PythiaIsrMUSIC smoke test on the Wayne State grid. v10.9 fixes the Slurm-side PYTHIA8DIR runtime environment failure seen in v10.8.
 
@@ -68,3 +68,10 @@ Each worker internally retries failed PythiaIsrMUSIC attempts up to `PythiaIsrMa
 - `Every line should have 36 variables, but we got -1 variables in total`
 
 Only a successful attempt with a nonempty final-state hadron file is installed as the canonical `job<TASK>_final_state_hadrons.dat`.
+
+## v10.10 notes
+
+- `submit_jetscape_sliced.slurm` is now v7.1. Internal PythiaIsrMUSIC retries use a single 1-based attempt convention everywhere: `attempt001`, XML `attempt001`, JSON `attempt001`, and logs `attempt=1/N`.
+- Failed internal retry stdout/stderr is captured in each staged `attempt.log`, so recoverable pp zero-surface/iSS retries do not pollute the Slurm `.err` file.
+- `submit_sliced_sim.sh` is now v8.4. Running `./submit_sliced_sim.sh` from Warrior/head node self-submits the SIM manager via Slurm and exits; the manager continues if SSH disconnects.
+- `jetscape.ini` is now v6.2. Default smoke-test tag is `pprealistic_vac_25test_v10_10` and `Multiplier=2` for a 50-task vacuum smoke run.

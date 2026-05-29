@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# submit_jetscape_sliced.slurm v7.0
+# submit_jetscape_sliced.slurm v7.1
 # CHANGELOG
+# v7.1 (clean attempt labels + quiet internal retry stderr):
+#   • CHANGE: Internal retry attempt records are now 1-based everywhere: attempt001.json, XML attempt001, and logs attempt=1/N.
+#   • FIX: Failed internal PythiaIsrMUSIC/srun retries now write stdout+stderr to each attempt_dir/attempt.log instead of polluting Slurm .err with recoverable messages.
+#   • LOG: Worker prints the per-attempt log path and the tail of failed attempt logs into Slurm stdout for debugging without false .err alarms.
 # v7.0 (fix Pythia runtime env for PythiaIsrMUSIC on Wayne grid):
 #   • FIX: Export PYTHIA8DIR from pythia8-config --prefix after loading the pythia module.
 #   • FIX: Export PYTHIA8/P8INC/P8LIB/PYTHIA8DATA when discoverable so Pythia-dependent hadronization does not abort before physics.
@@ -308,6 +312,9 @@ ensure_python3
 utc_now(){ date -u +'%F %T'; }
 
 next_seed_attempt_index(){
+  # Return a 1-based attempt index. The first launched seed record is attempt001,
+  # matching user-facing XML/log labels attempt=1/N. Seed offsets still use
+  # zero-based retry math through retry_index = attempt_index - 1.
   local launch_dir="$1"
   local task="$2"
   local count=0
@@ -315,13 +322,16 @@ next_seed_attempt_index(){
   local records=("${launch_dir}/job${task}.attempt"*.json)
   count=${#records[@]}
   shopt -u nullglob
-  printf '%s\n' "${count}"
+  printf '%s
+' "$((count + 1))"
 }
 
 write_seed_launch_record(){
   local launch_dir="$1"
   local attempt="$2"
-  local record="${launch_dir}/job${TASK}.attempt${attempt}.json"
+  local attempt_pad
+  attempt_pad="$(printf '%03d' "${attempt}")"
+  local record="${launch_dir}/job${TASK}.attempt${attempt_pad}.json"
   local tmp="${record}.tmp.$$"
   mkdir -p "${launch_dir}"
   if [[ -e "${record}" ]]; then
@@ -655,10 +665,11 @@ render_user_xml(){
 }
 
 compute_next_seed(){
-  RETRY_OFFSET="$(next_seed_attempt_index "${SEED_LAUNCH_DIR}" "${TASK}")"
-  if ! [[ "${RETRY_OFFSET}" =~ ^[0-9]+$ ]]; then
-    die "Non-numeric retry/attempt index for task=${TASK}: ${RETRY_OFFSET}"
+  ATTEMPT_INDEX="$(next_seed_attempt_index "${SEED_LAUNCH_DIR}" "${TASK}")"
+  if ! [[ "${ATTEMPT_INDEX}" =~ ^[0-9]+$ ]] || (( ATTEMPT_INDEX < 1 )); then
+    die "Non-numeric retry/attempt index for task=${TASK}: ${ATTEMPT_INDEX}"
   fi
+  RETRY_OFFSET=$((ATTEMPT_INDEX - 1))
   local retry_stride="${PythiaIsrRetrySeedStride:-7919}"
   local seed_raw=$(( SEED_BASE + SLI*SEED_STRIDE + TASK + RETRY_OFFSET*retry_stride ))
   if [[ "${SEED_SALT_TIME:-0}" -eq 1 ]]; then
@@ -666,7 +677,7 @@ compute_next_seed(){
     seed_raw=$(( seed_raw + salt ))
   fi
   SEED=$(( (seed_raw % 2000000000) + 1 ))
-  log "[seed] base=${SEED_BASE} stride=${SEED_STRIDE} slice_index=${SLI} task=${TASK} retry=${RETRY_OFFSET} retry_stride=${retry_stride} -> seed=${SEED}"
+  log "[seed] base=${SEED_BASE} stride=${SEED_STRIDE} slice_index=${SLI} task=${TASK} attempt=${ATTEMPT_INDEX} retry_offset=${RETRY_OFFSET} retry_stride=${retry_stride} -> seed=${SEED}"
 }
 
 stage_realistic_runtime_assets(){
@@ -707,7 +718,7 @@ stage_realistic_runtime_assets(){
 
 run_legacy_jetscape_once(){
   compute_next_seed
-  write_seed_launch_record "${SEED_LAUNCH_DIR}" "${RETRY_OFFSET}"
+  write_seed_launch_record "${SEED_LAUNCH_DIR}" "${ATTEMPT_INDEX}"
   render_user_xml "${XML_IN}" "${XML_OUT}" "${SEED}" "${LOCAL_OUTPUT_PREFIX}"
   log "[xml] wrote ${XML_OUT}"
 
@@ -758,48 +769,52 @@ run_realistic_pythiaisrmusic_with_retries(){
   local accepted=0
   local internal_attempt
   for (( internal_attempt=1; internal_attempt<=max_attempts; internal_attempt++ )); do
-    local attempt_dir="${TASK_TMP_DIR}/attempt_${internal_attempt}"
+    compute_next_seed
+    write_seed_launch_record "${SEED_LAUNCH_DIR}" "${ATTEMPT_INDEX}"
+
+    local attempt_pad
+    attempt_pad="$(printf '%03d' "${ATTEMPT_INDEX}")"
+    local attempt_dir="${TASK_TMP_DIR}/attempt_${attempt_pad}"
     mkdir -p "${attempt_dir}"
     stage_realistic_runtime_assets "${attempt_dir}"
 
-    compute_next_seed
-    write_seed_launch_record "${SEED_LAUNCH_DIR}" "${RETRY_OFFSET}"
-
-    local xml_base="jetscape_user_sliced_${PT_L}_${PT_H}_${TASK}_attempt${internal_attempt}.xml"
+    local xml_base="jetscape_user_sliced_${PT_L}_${PT_H}_${TASK}_attempt${attempt_pad}.xml"
     XML_OUT="${attempt_dir}/${xml_base}"
     LOCAL_OUTPUT_PREFIX="job${TASK}"
     HADRON_FILE_LOCAL="${attempt_dir}/${LOCAL_OUTPUT_PREFIX}${HADRON_SUFFIX}"
+    local attempt_run_log="${attempt_dir}/attempt.log"
     render_user_xml "${XML_IN}" "${XML_OUT}" "${SEED}" "${LOCAL_OUTPUT_PREFIX}"
-    log "[xml] attempt=${internal_attempt}/${max_attempts} wrote ${XML_OUT}"
+    log "[xml] attempt=${ATTEMPT_INDEX}/${max_attempts} wrote ${XML_OUT}"
 
-    log "[run] attempt=${internal_attempt}/${max_attempts} cd ${attempt_dir}"
+    log "[run] attempt=${ATTEMPT_INDEX}/${max_attempts} cd ${attempt_dir}"
     log "[run] ${EXE_NAME} ${xml_base} ${main_xml_path}"
+    log "[runlog] attempt=${ATTEMPT_INDEX}/${max_attempts} stdout+stderr -> ${attempt_run_log}"
     log "[slurm] cpu_bind env: SLURM_CPU_BIND=${SLURM_CPU_BIND:-unset} SLURM_CPU_BIND_TYPE=${SLURM_CPU_BIND_TYPE:-unset} SLURM_CPU_BIND_LIST=${SLURM_CPU_BIND_LIST:-unset}"
 
     local rc=0
-    if [[ "${WRITE_SIM_LOGS}" -eq 1 ]]; then
-      ( cd "${attempt_dir}" && srun --cpu-bind=none "${EXE_PATH}" "${xml_base}" "${main_xml_path}" ) || rc=$?
-    else
-      ( cd "${attempt_dir}" && srun --cpu-bind=none "${EXE_PATH}" "${xml_base}" "${main_xml_path}" ) >/dev/null 2>&1 || rc=$?
-    fi
+    ( cd "${attempt_dir}" && srun --cpu-bind=none "${EXE_PATH}" "${xml_base}" "${main_xml_path}" ) >"${attempt_run_log}" 2>&1 || rc=$?
 
     local bytes=0
     if [[ -f "${HADRON_FILE_LOCAL}" ]]; then
       bytes=$(stat -c %s "${HADRON_FILE_LOCAL}" 2>/dev/null || echo 0)
     fi
-    log "[run] attempt=${internal_attempt}/${max_attempts} exit=${rc} hadron=${HADRON_FILE_LOCAL} bytes=${bytes}"
+    log "[run] attempt=${ATTEMPT_INDEX}/${max_attempts} exit=${rc} hadron=${HADRON_FILE_LOCAL} bytes=${bytes}"
 
     if [[ "${rc}" -eq 0 && -s "${HADRON_FILE_LOCAL}" ]]; then
       rm -f -- "${HADRON_TMP_INSTALL}"
       cp -f "${HADRON_FILE_LOCAL}" "${HADRON_TMP_INSTALL}"
       mv -f "${HADRON_TMP_INSTALL}" "${HADRON_FILE}"
-      log "[stage] accepted attempt=${internal_attempt}; installed ${HADRON_FILE_LOCAL} -> ${HADRON_FILE}"
-      cp -f "${XML_OUT}" "${XML_OUT_SHARED}.accepted_attempt${internal_attempt}" || true
+      log "[stage] accepted attempt=${ATTEMPT_INDEX}; installed ${HADRON_FILE_LOCAL} -> ${HADRON_FILE}"
+      cp -f "${XML_OUT}" "${XML_OUT_SHARED}.accepted_attempt${attempt_pad}" || true
       accepted=1
       break
     fi
 
-    log "[retry] attempt=${internal_attempt}/${max_attempts} did not produce an accepted hadron file; trying a new seed if attempts remain"
+    log "[retry] attempt=${ATTEMPT_INDEX}/${max_attempts} did not produce an accepted hadron file; trying a new seed if attempts remain"
+    if [[ -s "${attempt_run_log}" ]]; then
+      log "[retry] tail of ${attempt_run_log}:"
+      tail -40 "${attempt_run_log}" | sed 's/^/[attempt-log] /' || true
+    fi
   done
 
   if [[ "${accepted}" -ne 1 ]]; then
