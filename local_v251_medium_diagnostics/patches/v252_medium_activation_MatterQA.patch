@@ -1,0 +1,222 @@
+diff --git a/src/jet/Matter.cc b/src/jet/Matter.cc
+index 482dca2b..ad94fe42 100644
+--- a/src/jet/Matter.cc
++++ b/src/jet/Matter.cc
+@@ -13,12 +13,20 @@
+  * Distributed under the GNU General Public License 3.0 (GPLv3 or later).
+  * See COPYING for details.
+  ******************************************************************************/
++// Local v251 diagnostic patch note:
++//   Add per-run MATTER hydro-query QA counters for controlled pp
++//   vacuum/medium diagnostics. Physics settings and qhat formulas unchanged.
++// Local v252 medium-activation patch note:
++//   Classify MATTER hydro-query timing/light-cone status and positive-T counts
++//   for diagnosing hydro-history activation. No qhat or shower physics change.
+ 
+ #include "Matter.h"
+ #include "JetScapeLogger.h"
+ #include "JetScapeParticles.h"
+ #include "Pythia8/Pythia.h"
+ 
++#include <algorithm>
++#include <fstream>
+ #include <string>
+ 
+ #include <iostream>
+@@ -92,7 +100,10 @@ Matter::Matter() {
+   NUM1 = 0;
+ }
+ 
+-Matter::~Matter() { VERBOSE(8); }
++Matter::~Matter() {
++  VERBOSE(8);
++  WriteHydroQueryQA();
++}
+ 
+ void Matter::InitTask() {
+   JSINFO << "Initialize Matter ...";
+@@ -152,6 +163,18 @@ void Matter::InitTask() {
+ 
+   ModificationFactor = GetXMLElementDouble({"Eloss", "ModificationFactor"});
+   ModificationCorr = 1.0;
++  hydro_query_count = 0;
++  hydro_query_above_tc = 0;
++  hydro_query_below_tc = 0;
++  hydro_query_zero_or_negative = 0;
++  hydro_query_T_gt_0 = 0;
++  hydro_query_before_hydro_start = 0;
++  hydro_query_outside_light_cone = 0;
++  hydro_query_after_hydro_start_T_le_0 = 0;
++  hydro_query_sample_count = 0;
++  hydro_query_temp_sum = 0.0;
++  hydro_query_temp_min = std::numeric_limits<double>::max();
++  hydro_query_temp_max = 0.0;
+ 
+   if (vir_factor < 0.0) {
+     JSWARN << "vir_factor should not be negative";
+@@ -493,6 +516,7 @@ void Matter::DoEnergyLoss(double deltaT, double time, double Q2,
+       // VERBOSE(8)<<MAGENTA<<"Temperature from medium =
+       // "<<check_fluid_info_ptr->temperature;
+       now_temp = check_fluid_info_ptr->temperature;
++      RecordHydroQuery(now_R0, now_Rx, now_Ry, now_Rz, now_temp);
+       // JSINFO << BOLDYELLOW << "MATTER time = " << now_R0 << " x = " << now_Rx
+       // << " y = " << now_Ry << " z = " << now_Rz << " temp = " << now_temp;
+       // JSINFO << BOLDYELLOW << "MATTER initVx, initVy, initVz =" << initVx <<
+@@ -775,6 +799,7 @@ void Matter::DoEnergyLoss(double deltaT, double time, double Q2,
+                      << check_fluid_info_ptr->temperature;
+ 
+           tempLoc = check_fluid_info_ptr->temperature;
++          RecordHydroQuery(el_time, el_rx, el_ry, el_rz, tempLoc);
+           sdLoc = check_fluid_info_ptr->entropy_density;
+           vxLoc = check_fluid_info_ptr->vx;
+           vyLoc = check_fluid_info_ptr->vy;
+@@ -3901,6 +3926,7 @@ double Matter::fillQhatTab(double y) {
+                << check_fluid_info_ptr->temperature;
+ 
+     tempLoc = check_fluid_info_ptr->temperature;
++    RecordHydroQuery(tLoc, xLoc, yLoc, zLoc, tempLoc);
+     sdLoc = check_fluid_info_ptr->entropy_density;
+     vxLoc = check_fluid_info_ptr->vx;
+     vyLoc = check_fluid_info_ptr->vy;
+@@ -3981,6 +4007,93 @@ double Matter::fillQhatTab(double y) {
+           5.0);  // light cone + GeV unit
+ }
+ 
++void Matter::RecordHydroQuery(double t, double x, double y, double z,
++                              double temperature) {
++  if (in_vac) {
++    return;
++  }
++  hydro_query_count++;
++  hydro_query_temp_sum += temperature;
++  hydro_query_temp_min = std::min(hydro_query_temp_min, temperature);
++  hydro_query_temp_max = std::max(hydro_query_temp_max, temperature);
++  if (temperature >= hydro_Tc) {
++    hydro_query_above_tc++;
++  } else {
++    hydro_query_below_tc++;
++  }
++  if (temperature <= 0.0) {
++    hydro_query_zero_or_negative++;
++  }
++  if (temperature > 0.0) {
++    hydro_query_T_gt_0++;
++  }
++  const bool outside_light_cone = !(t * t > z * z);
++  if (outside_light_cone) {
++    hydro_query_outside_light_cone++;
++  }
++  if (t < tStart) {
++    hydro_query_before_hydro_start++;
++  }
++  if (t >= tStart && temperature <= 0.0) {
++    hydro_query_after_hydro_start_T_le_0++;
++  }
++  if (hydro_query_sample_count < 20) {
++    std::ofstream samples("medium_hydro_query_samples.txt", std::ios::app);
++    if (samples) {
++      double tau = 0.0;
++      double eta = 0.0;
++      if (!outside_light_cone) {
++        tau = std::sqrt(t * t - z * z);
++        eta = 0.5 * std::log((t + z) / (t - z));
++      }
++      samples << "sample " << hydro_query_sample_count << " t " << t
++              << " x " << x << " y " << y << " z " << z << " tau " << tau
++              << " eta " << eta << " T " << temperature
++              << " tStart " << tStart << "\n";
++    }
++    hydro_query_sample_count++;
++  }
++}
++
++void Matter::WriteHydroQueryQA() const {
++  std::ofstream qa("medium_hydro_query_QA.txt", std::ios::app);
++  if (!qa) {
++    return;
++  }
++  const double mean_temp =
++      hydro_query_count > 0
++          ? hydro_query_temp_sum / static_cast<double>(hydro_query_count)
++          : 0.0;
++  const double min_temp =
++      hydro_query_count > 0 ? hydro_query_temp_min : 0.0;
++  const double above_frac =
++      hydro_query_count > 0
++          ? static_cast<double>(hydro_query_above_tc) /
++                static_cast<double>(hydro_query_count)
++          : 0.0;
++  qa << "Matter hydro query QA\n"
++     << "in_vac " << in_vac << "\n"
++     << "hydro_Tc_GeV " << hydro_Tc << "\n"
++     << "queries " << hydro_query_count << "\n"
++     << "queries_T_ge_Tc " << hydro_query_above_tc << "\n"
++     << "queries_T_lt_Tc " << hydro_query_below_tc << "\n"
++     << "queries_T_le_0 " << hydro_query_zero_or_negative << "\n"
++     << "queries_T_gt_0 " << hydro_query_T_gt_0 << "\n"
++     << "queries_before_hydro_start_t " << hydro_query_before_hydro_start
++     << "\n"
++     << "queries_outside_light_cone " << hydro_query_outside_light_cone << "\n"
++     << "queries_after_hydro_start_T_le_0 "
++     << hydro_query_after_hydro_start_T_le_0 << "\n"
++     << "fraction_T_ge_Tc " << above_frac << "\n"
++     << "temperature_min_GeV " << min_temp << "\n"
++     << "temperature_mean_GeV " << mean_temp << "\n"
++     << "temperature_max_GeV " << hydro_query_temp_max << "\n"
++     << "QhatParametrizationType " << QhatParametrizationType << "\n"
++     << "Q0 " << Q00 << "\n"
++     << "qhat0 " << qhat0 << "\n"
++     << "----\n";
++}
++
+ //////////////////////////////////General Function of
+ /// q-hat//////////////////////////////////
+ // E is the energy and muSquare is the virtuality of the parton
+diff --git a/src/jet/Matter.h b/src/jet/Matter.h
+index cc4b36ff..389d4f0d 100644
+--- a/src/jet/Matter.h
++++ b/src/jet/Matter.h
+@@ -13,6 +13,12 @@
+  * Distributed under the GNU General Public License 3.0 (GPLv3 or later).
+  * See COPYING for details.
+  ******************************************************************************/
++// Local v251 diagnostic patch note:
++//   Add per-run MATTER hydro-query QA counters for controlled pp
++//   vacuum/medium diagnostics. Physics settings and qhat formulas unchanged.
++// Local v252 medium-activation patch note:
++//   Classify MATTER hydro queries by basic time/light-cone status and positive
++//   temperature while leaving all qhat and shower physics unchanged.
+ 
+ #ifndef MATTER_H
+ #define MATTER_H
+@@ -20,6 +26,8 @@
+ #include "JetEnergyLossModule.h"
+ #include "Pythia8/Pythia.h"
+ 
++#include <limits>
++
+ using namespace Jetscape;
+ 
+ class Matter : public JetEnergyLossModule<
+@@ -189,6 +197,21 @@ class Matter : public JetEnergyLossModule<
+ 
+   double ModificationCorr;
+   double ModificationFactor;
++  void RecordHydroQuery(double t, double x, double y, double z,
++                        double temperature);
++  void WriteHydroQueryQA() const;
++  long long hydro_query_count = 0;
++  long long hydro_query_above_tc = 0;
++  long long hydro_query_below_tc = 0;
++  long long hydro_query_zero_or_negative = 0;
++  long long hydro_query_T_gt_0 = 0;
++  long long hydro_query_before_hydro_start = 0;
++  long long hydro_query_outside_light_cone = 0;
++  long long hydro_query_after_hydro_start_T_le_0 = 0;
++  mutable long long hydro_query_sample_count = 0;
++  double hydro_query_temp_sum = 0.0;
++  double hydro_query_temp_min = std::numeric_limits<double>::max();
++  double hydro_query_temp_max = 0.0;
+ 
+  protected:
+   uniform_real_distribution<double> ZeroOneDistribution;

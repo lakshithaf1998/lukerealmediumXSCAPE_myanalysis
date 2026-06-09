@@ -13,12 +13,20 @@
  * Distributed under the GNU General Public License 3.0 (GPLv3 or later).
  * See COPYING for details.
  ******************************************************************************/
+// Local v251 diagnostic patch note:
+//   Add per-run MATTER hydro-query QA counters for controlled pp
+//   vacuum/medium diagnostics. Physics settings and qhat formulas unchanged.
+// Local v252 medium-activation patch note:
+//   Classify MATTER hydro queries by basic time/light-cone status and positive
+//   temperature while leaving all qhat and shower physics unchanged.
 
 #ifndef MATTER_H
 #define MATTER_H
 
 #include "JetEnergyLossModule.h"
 #include "Pythia8/Pythia.h"
+
+#include <limits>
 
 using namespace Jetscape;
 
@@ -189,6 +197,21 @@ class Matter : public JetEnergyLossModule<
 
   double ModificationCorr;
   double ModificationFactor;
+  void RecordHydroQuery(double t, double x, double y, double z,
+                        double temperature);
+  void WriteHydroQueryQA() const;
+  long long hydro_query_count = 0;
+  long long hydro_query_above_tc = 0;
+  long long hydro_query_below_tc = 0;
+  long long hydro_query_zero_or_negative = 0;
+  long long hydro_query_T_gt_0 = 0;
+  long long hydro_query_before_hydro_start = 0;
+  long long hydro_query_outside_light_cone = 0;
+  long long hydro_query_after_hydro_start_T_le_0 = 0;
+  mutable long long hydro_query_sample_count = 0;
+  double hydro_query_temp_sum = 0.0;
+  double hydro_query_temp_min = std::numeric_limits<double>::max();
+  double hydro_query_temp_max = 0.0;
 
  protected:
   uniform_real_distribution<double> ZeroOneDistribution;

@@ -200,6 +200,28 @@ class MpiMusic : public FluidDynamics {
 
   int initialProfile_;
 
+  // Local v252 medium-activation diagnostics: classify the hydro object that
+  // MATTER reaches through GetHydroCellSignal without changing physics values.
+  mutable long long hydro_query_framework_count = 0;
+  mutable long long hydro_query_music_fallback_count = 0;
+  mutable long long hydro_query_no_history_count = 0;
+  mutable long long hydro_query_before_tau0_count = 0;
+  mutable long long hydro_query_after_taumax_count = 0;
+  mutable long long hydro_query_outside_xy_count = 0;
+  mutable long long hydro_query_outside_eta_count = 0;
+  mutable long long hydro_query_inside_count = 0;
+  mutable long long hydro_query_inside_T_gt0_count = 0;
+  mutable long long hydro_query_inside_T_ge155_count = 0;
+  mutable long long hydro_query_inside_T_ge160_count = 0;
+  mutable long long hydro_query_path_samples = 0;
+
+  void WriteHydroHistoryQA(const std::string &stage) const;
+  void RecordHydroQueryPath(const std::string &source, Jetscape::real t,
+                            Jetscape::real x, Jetscape::real y,
+                            Jetscape::real z,
+                            const FluidCellInfo &cell) const;
+  void WriteHydroQueryPathQA() const;
+
   // Allows the registration of the module so that it is available to be
   // used by the Jetscape framework.
   static RegisterJetScapeModule<MpiMusic> reg;

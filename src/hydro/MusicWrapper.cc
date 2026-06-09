@@ -13,16 +13,32 @@
  * Distributed under the GNU General Public License 3.0 (GPLv3 or later).
  * See COPYING for details.
  ******************************************************************************/
+// Local v251 diagnostic patch note:
+//   Fix y-grid metadata forwarding for in-memory MUSIC histories and replace
+//   shell-based freezeout surface concatenation with checked C++ file handling.
+// Local v252 medium-activation patch note:
+//   For 3D-Glauber string-source pp workflows, copy completed MUSIC evolution
+//   history into JETSCAPE bulk_info even when source terms exist, so MATTER
+//   queries the framework hydro history instead of stale/cleared live MUSIC
+//   memory. Adds local QA logs for hydro history and query range diagnostics.
+//   Treat single-eta copied histories as eta-collapsed/boost-invariant for
+//   JETSCAPE interpolation so MATTER queries are not all rejected by eta range.
 
+#include <glob.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <MakeUniqueHelper.h>
 
+#include <algorithm>
+#include <cmath>
+#include <fstream>
 #include <string>
 #include <sstream>
 #include <vector>
 #include <memory>
 #include <regex>
+#include <stdexcept>
 
 #include "JetScapeLogger.h"
 #include "MusicWrapper.h"
@@ -351,19 +367,23 @@ int MpiMusic::InitializeHydroEnergyProfile() {
   // this is a temporary solution
   music_hydro_ptr->add_hydro_source_terms(hydro_source_terms_ptr);
 
-  if (pre_eq_ptr == nullptr) {
+  if (initialProfile_ == 13 || initialProfile_ == 131) {
+    auto QCDStringList = ini->GetQCDStringList();
+    JSINFO << "Setting up MUSIC string source terms from "
+           << QCDStringList.size() << " QCD strings.";
+    if (QCDStringList.size() == 0) {
+      status = -1;
+    } else {
+      music_hydro_ptr->generate_hydro_source_terms(QCDStringList);
+      music_hydro_ptr->initialize_hydro_xscape(nx, ny, nz, dx, dy, dz);
+      hydro_source_terms_ptr->set_hydro_dtau(
+          music_hydro_ptr->get_hydro_dtau_grid());
+    }
+  } else if (pre_eq_ptr == nullptr) {
     JSINFO << "Setting up the hydro without pre-equilibrium module ...";
     music_hydro_ptr->initialize_hydro_xscape(nx, ny, nz, dx, dy, dz);
     hydro_source_terms_ptr->set_hydro_dtau(
         music_hydro_ptr->get_hydro_dtau_grid());
-  } else if (initialProfile_ == 13 || initialProfile_ == 131) {
-    auto QCDStringList = ini->GetQCDStringList();
-    if (QCDStringList.size() == 0) {
-      status = -1;
-    } else {
-      music_hydro_ptr->generate_hydro_source_terms(ini->GetQCDStringList());
-      music_hydro_ptr->initialize_hydro_xscape(nx, ny, nz, dx, dy, dz);
-    }
   } else {
     music_hydro_ptr->generate_hydro_source_terms();
     double tau0 = pre_eq_ptr->GetPreequilibriumEndTime();
@@ -495,15 +515,25 @@ void MpiMusic::EvolveHydro() {
   }
 
   if (flag_output_evo_to_memory == 1) {
-    if (!has_source_terms) {
-      // only the first hydro without source term will be stored
-      // in memory for jet energy loss calculations
+    const bool xscape_string_source_history =
+        has_source_terms && (initialProfile_ == 13 || initialProfile_ == 131);
+    if (!has_source_terms || xscape_string_source_history) {
+      // For InitialProfile 13/131, source terms are the 3D-Glauber string
+      // initial condition. They must still be copied for MATTER energy-loss
+      // queries; otherwise MATTER falls back to live MUSIC memory after the
+      // framework history remains empty.
       if (flag_preEq_output_evo_to_memory == 0) {
         clear_up_evolution_data();
       }
       PassHydroEvolutionHistoryToFramework();
       JSINFO << "Number of fluid cells received by JETSCAPE: "
              << bulk_info.data.size();
+      WriteHydroHistoryQA("after_PassHydroEvolutionHistoryToFramework");
+    } else {
+      JSWARN << "Skipping MUSIC hydro-history copy because source terms are "
+             << "present for InitialProfile=" << initialProfile_
+             << ". This workflow will not provide MATTER in-medium history.";
+      WriteHydroHistoryQA("skipped_source_terms");
     }
   }
 
@@ -528,26 +558,81 @@ void MpiMusic::EvolveHydro() {
 }
 
 void MpiMusic::collect_freeze_out_surface() {
-  system("rm surface.dat 2> /dev/null");
-
   std::ostringstream surface_filename;
   surface_filename << "surface_" << GetId() << ".dat";
 
-  std::ostringstream system_command;
-  system_command << "rm " << surface_filename.str() << " 2> /dev/null";
-  system(system_command.str().c_str());
-  system_command.str("");
-  system_command.clear();
-  system_command << "cat surface_eps* >> " << surface_filename.str();
-  system(system_command.str().c_str());
-  system_command.str("");
-  system_command.clear();
+  const std::string merged_surface = surface_filename.str();
+  const std::string iss_surface = "surface.dat";
 
-  system_command << "ln -s " << surface_filename.str() << " surface.dat";
-  system(system_command.str().c_str());
-  system_command.str("");
-  system_command.clear();
-  system("rm surface_eps* 2> /dev/null");
+  std::remove(iss_surface.c_str());
+  std::remove(merged_surface.c_str());
+
+  glob_t glob_result;
+  const int glob_status = glob("surface_eps*.dat", 0, nullptr, &glob_result);
+  if (glob_status != 0 || glob_result.gl_pathc == 0) {
+    globfree(&glob_result);
+    JSWARN << "No MUSIC freezeout surface files matched surface_eps*.dat; "
+           << "not creating surface.dat.";
+    throw std::runtime_error(
+        "MUSIC freezeout produced no surface_eps*.dat files");
+  }
+
+  std::ofstream merged(merged_surface, std::ios::binary | std::ios::out);
+  if (!merged) {
+    globfree(&glob_result);
+    throw std::runtime_error("Could not create " + merged_surface);
+  }
+
+  std::size_t files_merged = 0;
+  std::size_t bytes_merged = 0;
+  std::vector<std::string> surface_files;
+  for (std::size_t i = 0; i < glob_result.gl_pathc; ++i) {
+    surface_files.push_back(glob_result.gl_pathv[i]);
+  }
+  std::sort(surface_files.begin(), surface_files.end());
+
+  for (const auto &path : surface_files) {
+    std::ifstream input(path, std::ios::binary | std::ios::in);
+    if (!input) {
+      JSWARN << "Skipping unreadable MUSIC surface fragment: " << path;
+      continue;
+    }
+    input.seekg(0, std::ios::end);
+    const std::streamoff file_size = input.tellg();
+    input.seekg(0, std::ios::beg);
+    if (file_size <= 0) {
+      JSWARN << "Skipping empty MUSIC surface fragment: " << path;
+      continue;
+    }
+    merged << input.rdbuf();
+    bytes_merged += static_cast<std::size_t>(file_size);
+    files_merged++;
+  }
+  merged.close();
+  globfree(&glob_result);
+
+  if (files_merged == 0 || bytes_merged == 0) {
+    std::remove(merged_surface.c_str());
+    JSWARN << "All MUSIC surface fragments were empty or unreadable; "
+           << "not creating surface.dat.";
+    throw std::runtime_error("MUSIC freezeout surface merge was empty");
+  }
+
+  std::ifstream merged_in(merged_surface, std::ios::binary | std::ios::in);
+  std::ofstream iss_out(iss_surface, std::ios::binary | std::ios::out);
+  if (!merged_in || !iss_out) {
+    throw std::runtime_error("Could not publish merged MUSIC surface.dat");
+  }
+  iss_out << merged_in.rdbuf();
+  iss_out.close();
+
+  for (const auto &path : surface_files) {
+    std::remove(path.c_str());
+  }
+
+  JSINFO << "Merged " << files_merged << " MUSIC surface fragment files into "
+         << merged_surface << " and surface.dat (" << bytes_merged
+         << " bytes).";
 }
 
 void MpiMusic::SetPreEqGridInfo() {
@@ -560,15 +645,26 @@ void MpiMusic::SetPreEqGridInfo() {
 void MpiMusic::SetHydroGridInfo() {
   bulk_info.neta = music_hydro_ptr->get_neta();
   bulk_info.nx = music_hydro_ptr->get_nx();
-  bulk_info.ny = music_hydro_ptr->get_nx();
+  bulk_info.ny = music_hydro_ptr->get_ny();
   bulk_info.x_min = -music_hydro_ptr->get_hydro_x_max();
   bulk_info.dx = music_hydro_ptr->get_hydro_dx();
-  bulk_info.y_min = -music_hydro_ptr->get_hydro_x_max();
-  bulk_info.dy = music_hydro_ptr->get_hydro_dx();
+  bulk_info.y_min = -music_hydro_ptr->get_hydro_y_max();
+  bulk_info.dy = music_hydro_ptr->get_hydro_dy();
   bulk_info.eta_min = -music_hydro_ptr->get_hydro_eta_max();
   bulk_info.deta = music_hydro_ptr->get_hydro_deta();
+  JSINFO << "MUSIC hydro grid passed to JETSCAPE: ntau="
+         << music_hydro_ptr->get_ntau() << " nx=" << bulk_info.nx
+         << " ny=" << bulk_info.ny << " neta=" << bulk_info.neta
+         << " dx=" << bulk_info.dx << " dy=" << bulk_info.dy
+         << " deta=" << bulk_info.deta << ".";
 
-  bulk_info.boost_invariant = music_hydro_ptr->is_boost_invariant();
+  bulk_info.boost_invariant =
+      music_hydro_ptr->is_boost_invariant() || bulk_info.neta <= 1;
+  if (bulk_info.neta <= 1 && !music_hydro_ptr->is_boost_invariant()) {
+    JSWARN << "MUSIC hydro history has neta=" << bulk_info.neta
+           << " but is_boost_invariant=false. Treating the copied JETSCAPE "
+           << "history as eta-collapsed for hydro-cell interpolation.";
+  }
 
   if (flag_preEq_output_evo_to_memory == 0) {
     bulk_info.tau_min = music_hydro_ptr->get_hydro_tau0();
@@ -667,8 +763,13 @@ void MpiMusic::PassHydroEvolutionHistoryToFramework() {
 void MpiMusic::GetHydroInfo(
     Jetscape::real t, Jetscape::real x, Jetscape::real y, Jetscape::real z,
     std::unique_ptr<FluidCellInfo> &fluid_cell_info_ptr) {
-  GetHydroInfo_JETSCAPE(t, x, y, z, fluid_cell_info_ptr);
-  // GetHydroInfo_MUSIC(t, x, y, z, fluid_cell_info_ptr);
+  if (bulk_info.data.size() > 0) {
+    GetHydroInfo_JETSCAPE(t, x, y, z, fluid_cell_info_ptr);
+  } else if (flag_output_evo_to_memory == 1) {
+    GetHydroInfo_MUSIC(t, x, y, z, fluid_cell_info_ptr);
+  } else {
+    GetHydroInfo_JETSCAPE(t, x, y, z, fluid_cell_info_ptr);
+  }
 }
 
 void MpiMusic::GetHydroInfo_JETSCAPE(
@@ -676,6 +777,7 @@ void MpiMusic::GetHydroInfo_JETSCAPE(
     std::unique_ptr<FluidCellInfo> &fluid_cell_info_ptr) {
   auto temp = bulk_info.get_tz(t, x, y, z);
   fluid_cell_info_ptr = std::unique_ptr<FluidCellInfo>(new FluidCellInfo(temp));
+  RecordHydroQueryPath("JETSCAPE", t, x, y, z, *fluid_cell_info_ptr);
 }
 
 void MpiMusic::GetHydroInfo_MUSIC(
@@ -702,7 +804,169 @@ void MpiMusic::GetHydroInfo_MUSIC(
     }
   }
   fluid_cell_info_ptr->bulk_Pi = fluidCell_ptr->bulkPi;
+  RecordHydroQueryPath("MUSIC_FALLBACK", t, x, y, z, *fluid_cell_info_ptr);
   delete fluidCell_ptr;
+}
+
+void MpiMusic::WriteHydroHistoryQA(const std::string &stage) const {
+  std::ofstream qa("medium_activation_hydro_history_QA.txt", std::ios::app);
+  if (!qa) {
+    return;
+  }
+  double t_min = 0.0;
+  double t_max = 0.0;
+  double t_sum = 0.0;
+  long long t_gt0 = 0;
+  long long t_gt155 = 0;
+  long long t_gt160 = 0;
+  if (!bulk_info.data.empty()) {
+    t_min = bulk_info.data.front().temperature;
+    for (const auto &cell : bulk_info.data) {
+      const double temp = cell.temperature;
+      t_min = std::min(t_min, temp);
+      t_max = std::max(t_max, temp);
+      t_sum += temp;
+      if (temp > 0.0) {
+        t_gt0++;
+      }
+      if (temp > 0.155) {
+        t_gt155++;
+      }
+      if (temp > 0.160) {
+        t_gt160++;
+      }
+    }
+  }
+  const double t_mean =
+      bulk_info.data.empty() ? 0.0 : t_sum / bulk_info.data.size();
+  qa << "MUSIC/JETSCAPE hydro history QA\n"
+     << "stage " << stage << "\n"
+     << "initialProfile " << initialProfile_ << "\n"
+     << "has_source_terms " << has_source_terms << "\n"
+     << "flag_output_evo_to_memory " << flag_output_evo_to_memory << "\n"
+     << "cells " << bulk_info.data.size() << "\n"
+     << "ntau " << bulk_info.ntau << "\n"
+     << "nx " << bulk_info.nx << "\n"
+     << "ny " << bulk_info.ny << "\n"
+     << "neta " << bulk_info.neta << "\n"
+     << "tau0 " << bulk_info.tau_min << "\n"
+     << "dtau " << bulk_info.dtau << "\n"
+     << "tau_max " << bulk_info.TauMax() << "\n"
+     << "x_min " << bulk_info.x_min << "\n"
+     << "x_max " << bulk_info.XMax() << "\n"
+     << "y_min " << bulk_info.y_min << "\n"
+     << "y_max " << bulk_info.YMax() << "\n"
+     << "eta_min " << bulk_info.eta_min << "\n"
+     << "eta_max " << bulk_info.EtaMax() << "\n"
+     << "temperature_min_GeV " << t_min << "\n"
+     << "temperature_mean_GeV " << t_mean << "\n"
+     << "temperature_max_GeV " << t_max << "\n"
+     << "cells_T_gt_0 " << t_gt0 << "\n"
+     << "cells_T_gt_0p155 " << t_gt155 << "\n"
+     << "cells_T_gt_0p160 " << t_gt160 << "\n"
+     << "----\n";
+}
+
+void MpiMusic::RecordHydroQueryPath(const std::string &source, Jetscape::real t,
+                                    Jetscape::real x, Jetscape::real y,
+                                    Jetscape::real z,
+                                    const FluidCellInfo &cell) const {
+  if (source == "JETSCAPE") {
+    hydro_query_framework_count++;
+  } else {
+    hydro_query_music_fallback_count++;
+  }
+  if (bulk_info.data.empty()) {
+    hydro_query_no_history_count++;
+  }
+
+  double tau = 0.0;
+  double eta = 0.0;
+  bool in_light_cone = false;
+  if (t * t > z * z && t != z) {
+    in_light_cone = true;
+    tau = std::sqrt(t * t - z * z);
+    eta = 0.5 * std::log((t + z) / (t - z));
+  }
+  bool inside = in_light_cone && !bulk_info.data.empty();
+  if (!in_light_cone) {
+    inside = false;
+  } else {
+    if (tau < bulk_info.tau_min) {
+      hydro_query_before_tau0_count++;
+      inside = false;
+    }
+    if (tau > bulk_info.TauMax()) {
+      hydro_query_after_taumax_count++;
+      inside = false;
+    }
+    if (x < bulk_info.x_min || x > bulk_info.XMax() || y < bulk_info.y_min ||
+        y > bulk_info.YMax()) {
+      hydro_query_outside_xy_count++;
+      inside = false;
+    }
+    if (!bulk_info.boost_invariant &&
+        (eta < bulk_info.eta_min || eta > bulk_info.EtaMax())) {
+      hydro_query_outside_eta_count++;
+      inside = false;
+    }
+  }
+
+  if (inside) {
+    hydro_query_inside_count++;
+    if (cell.temperature > 0.0) {
+      hydro_query_inside_T_gt0_count++;
+    }
+    if (cell.temperature >= 0.155) {
+      hydro_query_inside_T_ge155_count++;
+    }
+    if (cell.temperature >= 0.160) {
+      hydro_query_inside_T_ge160_count++;
+    }
+  }
+
+  if (hydro_query_path_samples < 20) {
+    std::ofstream samples("medium_activation_hydro_query_samples.txt",
+                          std::ios::app);
+    if (samples) {
+      samples << "sample " << hydro_query_path_samples << " source " << source
+              << " t " << t << " x " << x << " y " << y << " z " << z
+              << " tau " << tau << " eta " << eta << " inside " << inside
+              << " T " << cell.temperature << "\n";
+    }
+    hydro_query_path_samples++;
+  }
+  if ((hydro_query_framework_count + hydro_query_music_fallback_count) % 5000 ==
+      0) {
+    WriteHydroQueryPathQA();
+  }
+}
+
+void MpiMusic::WriteHydroQueryPathQA() const {
+  std::ofstream qa("medium_activation_hydro_query_path_QA.txt");
+  if (!qa) {
+    return;
+  }
+  qa << "MUSIC/JETSCAPE hydro query path QA\n"
+     << "framework_queries " << hydro_query_framework_count << "\n"
+     << "music_fallback_queries " << hydro_query_music_fallback_count << "\n"
+     << "no_framework_history_queries " << hydro_query_no_history_count << "\n"
+     << "before_tau0_queries " << hydro_query_before_tau0_count << "\n"
+     << "after_tau_max_queries " << hydro_query_after_taumax_count << "\n"
+     << "outside_xy_queries " << hydro_query_outside_xy_count << "\n"
+     << "outside_eta_queries " << hydro_query_outside_eta_count << "\n"
+     << "inside_range_queries " << hydro_query_inside_count << "\n"
+     << "inside_range_T_gt_0 " << hydro_query_inside_T_gt0_count << "\n"
+     << "inside_range_T_ge_0p155 " << hydro_query_inside_T_ge155_count << "\n"
+     << "inside_range_T_ge_0p160 " << hydro_query_inside_T_ge160_count << "\n"
+     << "history_cells " << bulk_info.data.size() << "\n"
+     << "ntau " << bulk_info.ntau << "\n"
+     << "nx " << bulk_info.nx << "\n"
+     << "ny " << bulk_info.ny << "\n"
+     << "neta " << bulk_info.neta << "\n"
+     << "tau0 " << bulk_info.tau_min << "\n"
+     << "dtau " << bulk_info.dtau << "\n"
+     << "tau_max " << bulk_info.TauMax() << "\n";
 }
 
 bool MpiMusic::update_music_input_parameter(const std::string &filename,
