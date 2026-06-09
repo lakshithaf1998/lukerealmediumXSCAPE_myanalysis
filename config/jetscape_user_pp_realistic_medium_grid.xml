@@ -1,0 +1,121 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- jetscape_user_pp_realistic_medium_grid.xml v10.12
+CHANGELOG
+  v10.12 (paper-defensibility cleanup for MCGlauber XML controls):
+    • Kept generateOnlyPositions=1 because local 1000-trial A/B showed removing it gives 0/1000 valid events.
+    • Removed XML-level b_min, b_max, N_sea_partons, and useQuarks overrides from the MCGlauber/MUSIC blocks.
+    • b_min/b_max/useQuarks now fall back to myanalysis/mcglauber.input, where the paper-style/default input controls them.
+    • No changes to 13 TeV hard setup, pTHat placeholders, no hydro reuse, final-state-hadron writer, MUSIC timing, MATTER medium switch, iSS, or hadronization.
+  v10.11 (paper-closeness rapidity-loss restore):
+    • Added ylossParam4At6=2.15 and ylossParam4At10=2.15 to match the 2024 paper XML MCGlauber rapidity-loss parameter set.
+    • No other physics/runtime settings changed from v10.10/v10.8 grid template.
+  v10.8 (Wayne grid sliced PythiaIsrMUSIC template):
+    • Converted the validated Luke v10.7 local XML into a sliced-grid template.
+    • Replaced outputFilename, nEvents, seed, pTHatMin, and pTHatMax with manager-rendered placeholders.
+    • Kept 13 TeV setup: eCM=13000, pTHat supplied by jetscape.ini, softMomentumCutoff=2.0, eCMforHadronization=6500.0.
+    • Kept paper-timing MUSIC settings validated in local A/B: Initial_time_tau_0=0.6, average_surface_over_this_many_time_steps=5.
+    • Kept no hydro reuse: setReuseHydro=false, nReuseHydro=1.
+    • Kept final-state hadron ASCII output on for analyzer compatibility.
+-->
+<jetscape>
+  <outputFilename>**OUTFILE_PLACEHOLDER**</outputFilename>
+  <enableAutomaticTaskListDetermination>false</enableAutomaticTaskListDetermination>
+  <setReuseHydro>false</setReuseHydro>
+  <nReuseHydro>1</nReuseHydro>
+  <vlevel>1</vlevel>
+  <nEvents>**NEVENTS_PLACEHOLDER**</nEvents>
+  <Random>
+    <seed>**SEED_PLACEHOLDER**</seed>
+  </Random>
+  <JetScapeWriterAscii>off</JetScapeWriterAscii>
+  <JetScapeWriterFinalStateHadronsAscii>on</JetScapeWriterFinalStateHadronsAscii>
+  <Hard>
+    <PythiaGun>
+      <pTHatMin>**PTHATMIN_PLACEHOLDER**</pTHatMin>
+      <pTHatMax>**PTHATMAX_PLACEHOLDER**</pTHatMax>
+      <eCM>13000.0</eCM>
+      <softMomentumCutoff>2.0</softMomentumCutoff>
+      <LinesToRead>
+        PhaseSpace:bias2Selection = on
+        PhaseSpace:bias2SelectionPow = 4
+        PhaseSpace:bias2SelectionRef = 4
+        SigmaProcess:alphaSvalue = 0.15
+        MultipartonInteractions:alphaSvalue = 0.15
+        MultipartonInteractions:pTmin = 8.0
+      </LinesToRead>
+      <useHybridHad>1</useHybridHad>
+    </PythiaGun>
+  </Hard>
+  <Preequilibrium>
+    <NullPreDynamics />
+    <evolutionInMemory>0</evolutionInMemory>
+  </Preequilibrium>
+  <IS>
+    <MCGlauber>
+      <ylossParam4At2>1.6</ylossParam4At2>
+      <ylossParam4At4>2.15</ylossParam4At4>
+      <ylossParam4At6>2.15</ylossParam4At6>
+      <ylossParam4At10>2.15</ylossParam4At10>
+      <ylossParam4var>0.5</ylossParam4var>
+      <generateOnlyPositions>1</generateOnlyPositions>
+    </MCGlauber>
+  </IS>
+  <Hydro>
+    <MUSIC>
+      <InitialProfile>13</InitialProfile>
+      <beastMode>2</beastMode>
+      <EOS>14</EOS>
+      <string_source_sigma_x>0.5</string_source_sigma_x>
+      <string_source_sigma_eta>0.5</string_source_sigma_eta>
+      <stringPreEqFlowFactor>0.15</stringPreEqFlowFactor>
+      <output_evolution_to_file>0</output_evolution_to_file>
+      <output_evolution_to_memory>1</output_evolution_to_memory>
+      <store_hydro_info_in_memory>1</store_hydro_info_in_memory>
+      <T_dependent_Shear_to_S_ratio>3</T_dependent_Shear_to_S_ratio>
+      <temperature_dependent_bulk_viscosity>3</temperature_dependent_bulk_viscosity>
+      <bulk_viscosity_3_max>0.08</bulk_viscosity_3_max>
+      <shear_viscosity_3_at_kink>0.2</shear_viscosity_3_at_kink>
+      <freezeout_temperature>0.15</freezeout_temperature>
+      <use_eps_for_freeze_out>1</use_eps_for_freeze_out>
+      <eps_switch>0.3</eps_switch>
+      <Initial_time_tau_0>0.6</Initial_time_tau_0>
+      <MUSIC_input_file>music_input_Luke</MUSIC_input_file>
+      <average_surface_over_this_many_time_steps>5</average_surface_over_this_many_time_steps>
+      <evolutionInMemory>1</evolutionInMemory>
+      <generateOnlyPositions>1</generateOnlyPositions>
+      <iSS_input_file>iSS_parameters.dat</iSS_input_file>
+      <iSS_working_path>.</iSS_working_path>
+      <iSS_table_path>iSS_tables</iSS_table_path>
+      <iSS_particle_table_path>iSS_tables</iSS_particle_table_path>
+    </MUSIC>
+  </Hydro>
+  <Eloss>
+    <maxT>50</maxT>
+    <Matter>
+      <Q0>2.0</Q0>
+      <in_vac>0</in_vac>
+      <useHybridHad>1</useHybridHad>
+      <vir_factor>0.25</vir_factor>
+      <recoil_on>0</recoil_on>
+      <broadening_on>0</broadening_on>
+      <brick_med>0</brick_med>
+      <hydro_Tc>0.16</hydro_Tc>
+      <QhatParametrizationType>1</QhatParametrizationType>
+    </Matter>
+  </Eloss>
+  <JetHadronization>
+    <name>colorless</name>
+    <probStoUD>0.6413</probStoUD>
+    <eCMforHadronization>6500.0</eCMforHadronization>
+  </JetHadronization>
+  <SoftParticlization>
+    <iSS>
+      <iSS_input_file>iSS_parameters.dat</iSS_input_file>
+      <iSS_working_path>.</iSS_working_path>
+      <iSS_table_path>iSS_tables</iSS_table_path>
+      <iSS_particle_table_path>iSS_tables</iSS_particle_table_path>
+      <number_of_repeated_sampling>1000</number_of_repeated_sampling>
+      <Perform_resonance_decays>1</Perform_resonance_decays>
+    </iSS>
+  </SoftParticlization>
+</jetscape>

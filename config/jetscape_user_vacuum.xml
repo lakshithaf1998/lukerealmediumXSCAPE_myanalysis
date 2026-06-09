@@ -1,0 +1,85 @@
+<!--  jetscape_user_vacuum.xml v5.1  (VACUUM)
+     CHANGELOG
+       v5.1 (parameter-aligned vacuum baseline cleanup):
+         • Removed hard-coded parameter values from comments to avoid future comment/config drift.
+         • Set hadronization to colorless so vacuum and brick differ only by medium-related settings.
+         • Set shower-scale factor to a PP19-inspired value for the MATTER pp baseline spirit.
+         • Kept MATTER-only switching scale unchanged for a single-stage setup.
+         • Made generic Eloss evolution controls explicit for reproducibility.
+
+       v4.1 (minor, pp-sample cleanup):
+         • Force PromptPhoton channels off to avoid mixing prompt-photon channels into dijet sample.
+         • Keep pp-reference style: ISR+MPI from PYTHIA, FSR handled by MATTER.
+         • Keep reference-style shower setup aligned with the brick XML.
+         • Vacuum mode enabled and brick medium disabled.
+         • Hadronization energy tied to half of the collision energy.
+
+
+ -->
+<jetscape>
+  <nEvents>**NEVENTS_PLACEHOLDER**</nEvents>
+
+  <Random>
+    <seed>**SEED_PLACEHOLDER**</seed>
+  </Random>
+
+  <outputFilename>**OUTFILE_PLACEHOLDER**</outputFilename>
+
+  <JetScapeWriterAscii>off</JetScapeWriterAscii>
+  <JetScapeWriterFinalStateHadronsAscii>on</JetScapeWriterFinalStateHadronsAscii>
+
+  <Hard>
+    <PythiaGun>
+      <pTHatMin>**PTHATMIN_PLACEHOLDER**</pTHatMin>
+      <pTHatMax>**PTHATMAX_PLACEHOLDER**</pTHatMax>
+      <eCM>13000</eCM>
+
+      <!-- pp baseline: let MATTER handle final-state showering while PYTHIA keeps ISR+MPI -->
+      <FSR_on>0</FSR_on>
+
+      <!-- Keep the same hard-process cutoff choice as the brick XML -->
+      <softMomentumCutoff>2.0</softMomentumCutoff>
+
+      <!-- Make PYTHIA settings explicit -->
+      <LinesToRead>
+        HardQCD:all = on
+        PromptPhoton:all = off
+        PartonLevel:ISR = on
+        PartonLevel:MPI = on
+      </LinesToRead>
+    </PythiaGun>
+  </Hard>
+
+  <!-- No Hydro block for the vacuum reference -->
+  <Eloss>
+    <!-- Keep Eloss evolution controls explicit for reproducibility -->
+    <deltaT>0.1</deltaT>
+    <maxT>20</maxT>
+
+    <Matter>
+      <!-- Vacuum mode: disable medium modification -->
+      <in_vac>1</in_vac>
+
+      <!-- Shower parameters kept identical to the brick XML -->
+      <Q0>1.0</Q0>
+      <vir_factor>0.5</vir_factor>
+
+      <!-- No medium effects -->
+      <recoil_on>0</recoil_on>
+      <broadening_on>0</broadening_on>
+      <brick_med>0</brick_med>
+
+      <!-- Vacuum MATTER baseline -->
+      <QhatParametrizationType>2</QhatParametrizationType>
+      <qhat0>0.0</qhat0>
+
+      <alphas>0.25</alphas>
+    </Matter>
+  </Eloss>
+
+  <JetHadronization>
+    <name>colorless</name>
+    <!-- Keep hadronization beam-remnant scale explicit -->
+    <eCMforHadronization>6500.0</eCMforHadronization>
+  </JetHadronization>
+</jetscape>

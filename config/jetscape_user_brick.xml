@@ -1,0 +1,107 @@
+<!--  jetscape_user_sliced.xml v5.0  (BRICK)
+     CHANGELOG
+       v5.0 (clean A/B baseline for brick vs vacuum):
+         • Ensured ONLY medium-related parameters differ between vacuum and brick XMLs.
+
+
+
+       v4.1 (minor, pp-sample cleanup):
+         • Force PromptPhoton:all = off to avoid mixing prompt-photon channels into dijet sample.
+         • Keep EXACT same PythiaGun + MATTER shower params as vacuum.
+         • Enable Brick medium and MATTER in-medium mode (in_vac=0, brick_med=1).
+
+     PHYSICS NOTES:
+       - This is a SYNTHETIC brick medium for pipeline validation, not a realistic pp QGP.
+       - The goal: demonstrate that analysis pipeline detects quenching signal in
+         jet pT, xJ/AJ, Δφ broadening, Mjj shift when comparing brick vs vacuum.
+       - For realistic medium: switch to hydrodynamic profiles (MUSIC+TRENTo).
+
+     Templated by submit_jetscape_sliced.slurm via sed:
+       **NEVENTS_PLACEHOLDER** → NUM_EVENTS
+       **SEED_PLACEHOLDER**    → unique seed
+       **OUTFILE_PLACEHOLDER** → ${DIR_SIM}/<slice>/<jobid>/job<TASK>
+       **PTHATMIN/MAX**        → pTHat slice bounds
+-->
+<jetscape>
+  <nEvents>**NEVENTS_PLACEHOLDER**</nEvents>
+
+  <Random>
+    <seed>**SEED_PLACEHOLDER**</seed>
+  </Random>
+
+  <outputFilename>**OUTFILE_PLACEHOLDER**</outputFilename>
+
+  <JetScapeWriterAscii>off</JetScapeWriterAscii>
+  <JetScapeWriterFinalStateHadronsAscii>on</JetScapeWriterFinalStateHadronsAscii>
+
+  <Hard>
+    <PythiaGun>
+      <pTHatMin>**PTHATMIN_PLACEHOLDER**</pTHatMin>
+      <pTHatMax>**PTHATMAX_PLACEHOLDER**</pTHatMax>
+      <eCM>13000</eCM>
+
+      <!-- pp reference baseline: MATTER does FSR -->
+      <FSR_on>0</FSR_on>
+
+      <!-- Reference default used in JETSCAPE PP19 tune -->
+      <softMomentumCutoff>2.0</softMomentumCutoff>
+
+      <!-- Make PYTHIA settings explicit -->
+      <LinesToRead>
+        HardQCD:all = on
+        PromptPhoton:all = off
+        PartonLevel:ISR = on
+        PartonLevel:MPI = on
+      </LinesToRead>
+    </PythiaGun>
+  </Hard>
+
+  <!-- Brick medium model (static uniform QGP slab) -->
+  <Hydro>
+    <Brick bjorken_expansion_on="false" start_time="0.6">
+      <name>Brick</name>
+
+      <!-- Moderate QGP temperature; conservative first brick test -->
+      <T>0.25</T>
+    </Brick>
+  </Hydro>
+
+  <Eloss>
+    <Matter>
+      <!-- BRICK: enable in-medium splitting -->
+      <in_vac>0</in_vac>
+
+      <!-- Shower parameters — IDENTICAL to vacuum XML -->
+      <Q0>1.0</Q0>
+      <vir_factor>0.25</vir_factor>
+
+      <alphas>0.25</alphas>
+
+      <!-- Medium effects -->
+      <recoil_on>1</recoil_on>
+
+      <broadening_on>0</broadening_on>
+
+      <brick_med>1</brick_med>
+
+      <!-- Brick path length -->
+      <brick_length>1.0</brick_length>
+
+      <!-- Standard QCD crossover temperature -->
+      <hydro_Tc>0.16</hydro_Tc>
+
+      <!-- Constant qhat mode (Type=2) for clean A/B control -->
+      <QhatParametrizationType>2</QhatParametrizationType>
+      <qhat0>1.5</qhat0>
+    </Matter>
+  </Eloss>
+
+  <JetHadronization>
+    <name>colored</name>
+
+    <!-- Quickstart recommendation: sqrt(s)/2 -->
+    <eCMforHadronization>6500.0</eCMforHadronization>
+  </JetHadronization>
+</jetscape>
+
+
