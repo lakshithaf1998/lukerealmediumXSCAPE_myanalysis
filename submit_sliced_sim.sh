@@ -363,7 +363,7 @@ if [[ -z "${SLURM_JOB_ID:-}" && "${INSIDE_MANAGER}" -eq 0 ]]; then
     # Defaults match what you were manually doing with salloc/srun. Override via env if needed.
     MANAGER_ACCOUNT="${MANAGER_ACCOUNT:-wsu}"
     MANAGER_QOS="${MANAGER_QOS:-primary}"
-    MANAGER_TIME="${MANAGER_TIME:-36:00:00}"
+    MANAGER_TIME="${MANAGER_TIME:-240:00:00}"
     MANAGER_MEM="${MANAGER_MEM:-1G}"
     MANAGER_CPUS="${MANAGER_CPUS:-1}"
     MANAGER_NODES="${MANAGER_NODES:-1}"
